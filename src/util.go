@@ -25,7 +25,7 @@ func init() {
 }
 
 type cell struct {
-	c	  rune
+	c     rune
 	style tcell.Style
 }
 
@@ -39,6 +39,7 @@ func dbgPrintf(scr tcell.Screen, format string, args ...interface{}) {
 }
 
 func getParagraphs(s string) []string {
+	//s = strings.ReplaceAll(s, ".", ".\n\n") // split also per sentence
 	s = strings.Replace(s, "\r", "", -1)
 	s = regexp.MustCompile("\n\n+").ReplaceAllString(s, "\n\n")
 	return strings.Split(strings.Trim(s, "\n"), "\n\n")
@@ -116,12 +117,12 @@ func stringToCells(s string) []cell {
 }
 
 func drawString(scr tcell.Screen, x, y int, s string, cursorIdx int, style tcell.Style) {
-	sx := x
+	startX := x
 
 	for i, c := range s {
 		if c == '\n' {
 			y++
-			x = sx
+			x = startX
 		} else {
 			scr.SetContent(x, y, c, nil, style)
 			if i == cursorIdx {

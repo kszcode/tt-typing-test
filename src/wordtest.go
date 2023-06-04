@@ -14,7 +14,7 @@ func generateWordTest(name string, n int, g int) func() []segment {
 	return func() []segment {
 		segments := make([]segment, g)
 		for i := 0; i < g; i++ {
-			segments[i] = segment{randomText(n, words), ""}
+			segments[i] = segment{randomText(n, words), "", -5}
 		}
 
 		return segments

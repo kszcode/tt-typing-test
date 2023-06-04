@@ -22,8 +22,9 @@ const (
 )
 
 type segment struct {
-	Text        string `json:"text"`
-	Attribution string `json:"attribution"`
+	Text           string `json:"text"`
+	Attribution    string `json:"attribution"`
+	ParagraphIndex int    `json:"paragraph_index"`
 }
 
 type mistake struct {
@@ -32,13 +33,13 @@ type mistake struct {
 }
 
 type typer struct {
-	Scr              tcell.Screen
+	Screen           tcell.Screen
 	OnStart          func()
 	SkipWord         bool
 	ShowWpm          bool
 	DisableBackspace bool
 	BlockCursor      bool
-	tty              io.Writer
+	Tty              io.Writer
 
 	currentWordStyle    tcell.Style
 	nextWordStyle       tcell.Style
@@ -48,54 +49,63 @@ type typer struct {
 	defaultStyle        tcell.Style
 }
 
-func NewTyper(scr tcell.Screen, emboldenTypedText bool, fgcol, bgcol, hicol, hicol2, hicol3, errcol tcell.Color) *typer {
+func NewTyper(screen tcell.Screen, emboldenTypedText bool, fgColor, bgColor, hiColor, hiColor2, hiColor3, errColor tcell.Color) *typer {
 	var tty io.Writer
 	def := tcell.StyleDefault.
-		Foreground(fgcol).
-		Background(bgcol)
+		Foreground(fgColor).
+		Background(bgColor)
 
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
-	//Will fail on windows, but tt is still mostly usable via tcell
+	// Will fail on windows, but tty is still mostly usable via tcell
 	if err != nil {
 		tty = ioutil.Discard
 	}
 
-	correctStyle := def.Foreground(hicol)
+	correctStyle := def.Foreground(hiColor)
 	if emboldenTypedText {
 		correctStyle = correctStyle.Bold(true)
 	}
 
 	return &typer{
-		Scr:      scr,
+		Screen:   screen,
 		SkipWord: true,
-		tty:      tty,
+		Tty:      tty,
 
 		defaultStyle:        def,
 		correctStyle:        correctStyle,
-		currentWordStyle:    def.Foreground(hicol2),
-		nextWordStyle:       def.Foreground(hicol3),
-		incorrectStyle:      def.Foreground(errcol),
-		incorrectSpaceStyle: def.Background(errcol),
+		currentWordStyle:    def.Foreground(hiColor2),
+		nextWordStyle:       def.Foreground(hiColor3),
+		incorrectStyle:      def.Foreground(errColor),
+		incorrectSpaceStyle: def.Background(errColor),
 	}
 }
 
-func (t *typer) Start(text []segment, timeout time.Duration) (nerrs, ncorrect int, duration time.Duration, rc int, mistakes []mistake) {
+func (t *typer) Start(
+	listOfSegmentsToType []segment,
+	timeout time.Duration,
+) (
+	numErrors,
+	numCorrect int,
+	duration time.Duration,
+	rc int,
+	mistakes []mistake,
+) {
 	timeLeft := timeout
 
-	for i, s := range text {
+	for i, segmentToType := range listOfSegmentsToType {
 		startImmediately := true
 		var d time.Duration
-		var e, c int
+		var errCount, correctCount int
 		var m []mistake
 
 		if i == 0 {
 			startImmediately = false
 		}
 
-		e, c, rc, d, m = t.start(s.Text, timeLeft, startImmediately, s.Attribution)
+		errCount, correctCount, rc, d, m = t.start(segmentToType.Text, timeLeft, startImmediately, segmentToType.Attribution)
 
-		nerrs += e
-		ncorrect += c
+		numErrors += errCount
+		numCorrect += correctCount
 		duration += d
 		mistakes = append(mistakes, m...)
 
@@ -115,79 +125,99 @@ func (t *typer) Start(text []segment, timeout time.Duration) (nerrs, ncorrect in
 }
 
 func extractMistypedWords(text []rune, typed []rune) (mistakes []mistake) {
-	var w []rune
-	var t []rune
-	f := false
+	var word []rune
+	var typedWord []rune
+	isMismatched := false
 
 	for i := range text {
 		if text[i] == ' ' {
-			if f {
-				mistakes = append(mistakes, mistake{string(w), string(t)})
+			if isMismatched {
+				mistakes = append(mistakes, mistake{string(word), string(typedWord)})
 			}
 
-			w = w[:0]
-			t = t[:0]
-			f = false
+			word = word[:0]
+			typedWord = typedWord[:0]
+			isMismatched = false
 			continue
 		}
 
 		if text[i] != typed[i] {
-			f = true
+			isMismatched = true
 		}
 
 		if text[i] == 0 {
-			w = append(w, '_')
+			word = append(word, '_')
 		} else {
-			w = append(w, text[i])
+			word = append(word, text[i])
 		}
 
 		if typed[i] == 0 {
-			t = append(t, '_')
+			typedWord = append(typedWord, '_')
 		} else {
-			t = append(t, typed[i])
+			typedWord = append(typedWord, typed[i])
 		}
 	}
 
-	if f {
-		mistakes = append(mistakes, mistake{string(w), string(t)})
+	if isMismatched {
+		mistakes = append(mistakes, mistake{string(word), string(typedWord)})
 	}
 
 	return
 }
 
-func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, attribution string) (nerrs int, ncorrect int, rc int, duration time.Duration, mistakes []mistake) {
+func (t *typer) start(
+	textToType string,
+	timeLimit time.Duration,
+	startImmediately bool,
+	attribution string,
+) (
+	numErrors int,
+	numCorrect int,
+	rc int,
+	duration time.Duration,
+	mistakes []mistake,
+) {
+
 	var startTime time.Time
-	text := []rune(s)
-	typed := make([]rune, len(text))
+	referenceText := []rune(textToType)
+	userTypedText := make([]rune, len(referenceText))
 
-	sw, sh := scr.Size()
-	nc, nr := calcStringDimensions(s)
-	x := (sw - nc) / 2
-	y := (sh - nr) / 2
-
-	if !t.BlockCursor {
-		t.tty.Write([]byte("\033[5 q"))
-
-		//Assumes original cursor shape was a block (the one true cursor shape), there doesn't appear to be a
-		//good way to save/restore the shape if the user has changed it from the otcs.
-		defer t.tty.Write([]byte("\033[2 q"))
+	screenWidth, screenHeight := t.Screen.Size()
+	numCols, numRows := calcStringDimensions(textToType)
+	xStartLeftSideOfScreen := (screenWidth - numCols) / 2
+	yLineMultiplier := 2 // so it leaves space for the typed text, which will show the errors as well
+	yStartTopSideOfSideOfScreen := (screenHeight - numRows*yLineMultiplier) / 2
+	if yStartTopSideOfSideOfScreen < 0 {
+		yStartTopSideOfSideOfScreen = 0
 	}
 
-	t.Scr.SetStyle(t.defaultStyle)
-	idx := 0
+	if !t.BlockCursor {
+		t.Tty.Write([]byte("\033[5 q"))
 
-	calcStats := func() {
-		nerrs = 0
-		ncorrect = 0
+		// Assumes the original cursor shape was a block (the one true cursor shape),
+		// there doesn't appear to be a good way to save/restore the shape if the user has changed it from the otcs.
+		defer t.Tty.Write([]byte("\033[2 q"))
+	}
 
-		mistakes = extractMistypedWords(text[:idx], typed[:idx])
+	t.Screen.SetStyle(t.defaultStyle)
 
-		for i := 0; i < idx; i++ {
-			if text[i] != '\n' {
-				if text[i] != typed[i] {
-					nerrs++
+	// cursorPositionInText represents the current position of the typist within the text to be typed.
+	// It tracks the position where the next character is to be typed or erased.
+	// This variable starts at 0 and increases as characters are typed, and decreases when characters are erased.
+	cursorPositionInText := 0
+
+	calculateStatistics := func() {
+		numErrors = 0
+		numCorrect = 0
+
+		mistakes = extractMistypedWords(referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText])
+
+		for i := 0; i < cursorPositionInText; i++ {
+			if referenceText[i] != '\n' {
+				if referenceText[i] != userTypedText[i] {
+					numErrors++
 				} else {
-					ncorrect++
+					numCorrect++
 				}
 			}
 		}
@@ -197,39 +227,40 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 	}
 
 	redraw := func() {
-		cx := x
-		cy := y
-		inword := -1
+		cursorX := xStartLeftSideOfScreen
+		cursorY := yStartTopSideOfSideOfScreen
+		inWord := -1
 
-		for i := range text {
+		for i := range referenceText {
 			style := t.defaultStyle
 
-			if text[i] == '\n' {
-				cy++
-				cx = x
-				if inword != -1 {
-					inword++
+			characterInSegment := referenceText[i]
+			if characterInSegment == '\n' {
+				cursorY += yLineMultiplier
+				cursorX = xStartLeftSideOfScreen
+				if inWord != -1 {
+					inWord++
 				}
 				continue
 			}
 
-			if i == idx {
-				scr.ShowCursor(cx, cy)
-				inword = 0
+			if i == cursorPositionInText {
+				t.Screen.ShowCursor(cursorX, cursorY)
+				inWord = 0
 			}
 
-			if i >= idx {
-				if text[i] == ' ' {
-					inword++
-				} else if inword == 0 {
+			if i >= cursorPositionInText {
+				if characterInSegment == ' ' {
+					inWord++
+				} else if inWord == 0 {
 					style = t.currentWordStyle
-				} else if inword == 1 {
+				} else if inWord == 1 {
 					style = t.nextWordStyle
 				} else {
 					style = t.defaultStyle
 				}
-			} else if text[i] != typed[i] {
-				if text[i] == ' ' {
+			} else if characterInSegment != userTypedText[i] {
+				if characterInSegment == ' ' {
 					style = t.incorrectSpaceStyle
 				} else {
 					style = t.incorrectStyle
@@ -238,56 +269,84 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 				style = t.correctStyle
 			}
 
-			scr.SetContent(cx, cy, text[i], nil, style)
-			cx++
+			t.Screen.SetContent(cursorX, cursorY, characterInSegment, nil, style)
+			// only type the character in the row below if it is different from the correct character
+			if referenceText[i] != userTypedText[i] {
+				t.Screen.SetContent(cursorX, cursorY+1, userTypedText[i], nil, style)
+			}
+
+			cursorX++
 		}
 
-		aw, ah := calcStringDimensions(attribution)
-		drawString(t.Scr, x+nc-aw, y+nr+1, attribution, -1, t.defaultStyle)
+		attributionWidth, attributionHeight := calcStringDimensions(attribution)
+		drawString(
+			t.Screen,
+			xStartLeftSideOfScreen+numCols-attributionWidth,
+			yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+1,
+			attribution,
+			-1,
+			t.defaultStyle,
+		)
 
 		if timeLimit != -1 && !startTime.IsZero() {
 			remaining := timeLimit - time.Now().Sub(startTime)
-			drawString(t.Scr, x+nc/2, y+nr+ah+1, "      ", -1, t.defaultStyle)
-			drawString(t.Scr, x+nc/2, y+nr+ah+1, strconv.Itoa(int(remaining/1e9)+1), -1, t.defaultStyle)
+			drawString(t.Screen,
+				xStartLeftSideOfScreen+numCols/2,
+				yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				"      ",
+				-1,
+				t.defaultStyle,
+			)
+			drawString(t.Screen,
+				xStartLeftSideOfScreen+numCols/2,
+				yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				strconv.Itoa(int(remaining/1e9)+1),
+				-1,
+				t.defaultStyle,
+			)
 		}
 
 		if t.ShowWpm && !startTime.IsZero() {
-			calcStats()
-			if duration > 1e7 { //Avoid flashing large numbers on test start.
-				wpm := int((float64(ncorrect) / 5) / (float64(duration) / 60e9))
-				drawString(t.Scr, x+nc/2-4, y-2, fmt.Sprintf("WPM: %-10d\n", wpm), -1, t.defaultStyle)
+			calculateStatistics()
+			if duration > 1e7 { // Avoid flashing large numbers on test start.
+				wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
+				drawString(t.Screen,
+					xStartLeftSideOfScreen+numCols/2-4,
+					yStartTopSideOfSideOfScreen-2,
+					fmt.Sprintf("WPM: %-10d\n", wpm),
+					-1,
+					t.defaultStyle,
+				)
 			}
 		}
 
-		//Potentially inefficient, but seems to be good enough
-
-		t.Scr.Show()
+		t.Screen.Show()
 	}
 
 	deleteWord := func() {
-		if idx == 0 {
+		if cursorPositionInText == 0 {
 			return
 		}
 
-		idx--
+		cursorPositionInText--
 
-		for idx > 0 && (text[idx] == ' ' || text[idx] == '\n') {
-			idx--
+		for cursorPositionInText > 0 && (referenceText[cursorPositionInText] == ' ' || referenceText[cursorPositionInText] == '\n') {
+			cursorPositionInText--
 		}
 
-		for idx > 0 && text[idx] != ' ' && text[idx] != '\n' {
-			idx--
+		for cursorPositionInText > 0 && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {
+			cursorPositionInText--
 		}
 
-		if text[idx] == ' ' || text[idx] == '\n' {
-			typed[idx] = text[idx]
-			idx++
+		if referenceText[cursorPositionInText] == ' ' || referenceText[cursorPositionInText] == '\n' {
+			userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
+			cursorPositionInText++
 		}
 	}
 
 	tickerCloser := make(chan bool)
 
-	//Inject nil events into the main event loop at regular invervals to force an update
+	// Inject nil events into the main event loop at regular intervals to force an update
 	ticker := func() {
 		for {
 			select {
@@ -297,7 +356,7 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 			}
 
 			time.Sleep(time.Duration(5e8))
-			t.Scr.PostEventWait(nil)
+			t.Screen.PostEventWait(nil)
 		}
 	}
 
@@ -308,18 +367,18 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 		startTime = time.Now()
 	}
 
-	t.Scr.Clear()
+	t.Screen.Clear()
 	for {
 		redraw()
 
-		ev := t.Scr.PollEvent()
+		ev := t.Screen.PollEvent()
 
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			rc = TyperResize
 			return
 		case *tcell.EventKey:
-			if runtime.GOOS != "windows" && ev.Key() == tcell.KeyBackspace { //Control+backspace on unix terms
+			if runtime.GOOS != "windows" && ev.Key() == tcell.KeyBackspace { // Control+backspace on unix terms
 				if !t.DisableBackspace {
 					deleteWord()
 				}
@@ -340,7 +399,7 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 
 				return
 			case tcell.KeyCtrlL:
-				t.Scr.Sync()
+				t.Screen.Sync()
 
 			case tcell.KeyRight:
 				rc = TyperNext
@@ -360,52 +419,52 @@ func (t *typer) start(s string, timeLimit time.Duration, startImmediately bool, 
 					if ev.Modifiers() == tcell.ModAlt || ev.Modifiers() == tcell.ModCtrl {
 						deleteWord()
 					} else {
-						if idx == 0 {
+						if cursorPositionInText == 0 {
 							break
 						}
 
-						idx--
+						cursorPositionInText--
 
-						for idx > 0 && text[idx] == '\n' {
-							idx--
+						for cursorPositionInText > 0 && referenceText[cursorPositionInText] == '\n' {
+							cursorPositionInText--
 						}
 					}
 				}
 			case tcell.KeyRune:
-				if idx < len(text) {
+				if cursorPositionInText < len(referenceText) {
 					if t.SkipWord && ev.Rune() == ' ' {
-						if idx > 0 && text[idx-1] == ' ' && text[idx] != ' ' { //Do nothing on word boundaries.
+						if cursorPositionInText > 0 && referenceText[cursorPositionInText-1] == ' ' && referenceText[cursorPositionInText] != ' ' { // Do nothing on word boundaries.
 							break
 						}
 
-						for idx < len(text) && text[idx] != ' ' && text[idx] != '\n' {
-							typed[idx] = 0
-							idx++
+						for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {
+							userTypedText[cursorPositionInText] = 0
+							cursorPositionInText++
 						}
 
-						if idx < len(text) {
-							typed[idx] = text[idx]
-							idx++
+						if cursorPositionInText < len(referenceText) {
+							userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
+							cursorPositionInText++
 						}
 					} else {
-						typed[idx] = ev.Rune()
-						idx++
+						userTypedText[cursorPositionInText] = ev.Rune()
+						cursorPositionInText++
 					}
 
-					for idx < len(text) && text[idx] == '\n' {
-						typed[idx] = text[idx]
-						idx++
+					for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] == '\n' {
+						userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
+						cursorPositionInText++
 					}
 				}
 
-				if idx == len(text) {
-					calcStats()
+				if cursorPositionInText == len(referenceText) {
+					calculateStatistics()
 					return
 				}
 			}
-		default: //tick
+		default: // tick
 			if timeLimit != -1 && !startTime.IsZero() && timeLimit <= time.Now().Sub(startTime) {
-				calcStats()
+				calculateStatistics()
 				return
 			}
 

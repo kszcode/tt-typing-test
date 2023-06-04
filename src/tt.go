@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +38,8 @@ func die(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-var results []result
+var globalResults []result
+var globalInfoAboutTheCurrentTest = ""
 
 func parseConfig(b []byte) map[string]string {
 	if b == nil {
@@ -61,13 +62,13 @@ func exit(rc int) {
 
 	if jsonMode {
 		//Avoid null in serialized JSON.
-		for i := range results {
-			if results[i].Mistakes == nil {
-				results[i].Mistakes = []mistake{}
+		for i := range globalResults {
+			if globalResults[i].Mistakes == nil {
+				globalResults[i].Mistakes = []mistake{}
 			}
 		}
 
-		b, err := json.Marshal(results)
+		b, err := json.Marshal(globalResults)
 		if err != nil {
 			panic(err)
 		}
@@ -75,7 +76,7 @@ func exit(rc int) {
 	}
 
 	if csvMode {
-		for _, r := range results {
+		for _, r := range globalResults {
 			fmt.Printf("test,%d,%d,%.2f,%d\n", r.Wpm, r.Cpm, r.Accuracy, r.Timestamp)
 			for _, m := range r.Mistakes {
 				fmt.Printf("mistake,%s,%s\n", m.Word, m.Typed)
@@ -86,7 +87,20 @@ func exit(rc int) {
 	os.Exit(rc)
 }
 
-func showReport(scr tcell.Screen, cpm, wpm int, accuracy float64, attribution string, mistakes []mistake) {
+func showReport(
+	scr tcell.Screen,
+	duration time.Duration,
+	correctChars int,
+	incorrectChars int,
+	attribution string,
+	mistakes []mistake,
+) {
+	cpm := int(float64(correctChars) / (float64(duration) / 60e9))
+	wpm := cpm / 5
+	accuracy := float64(correctChars) / float64(incorrectChars+correctChars) * 100
+
+	globalResults = append(globalResults, result{wpm, cpm, accuracy, time.Now().Unix(), mistakes})
+
 	mistakeStr := ""
 	if attribution != "" {
 		attribution = "\n\nAttribution: " + attribution
@@ -102,7 +116,15 @@ func showReport(scr tcell.Screen, cpm, wpm int, accuracy float64, attribution st
 		}
 	}
 
-	report := fmt.Sprintf("WPM:         %d\nCPM:         %d\nAccuracy:    %.2f%%%s%s", wpm, cpm, accuracy, mistakeStr, attribution)
+	report := fmt.Sprintf("WPM: %9d\nCPM: %9d\nAccuracy:  %.2f%%%s%s%s",
+		wpm, cpm, accuracy,
+		mistakeStr, attribution, globalInfoAboutTheCurrentTest)
+
+	report = fmt.Sprintf("%s\n", report)
+	report = fmt.Sprintf("%s\nTests completed : %d", report, len(globalResults))
+	report = fmt.Sprintf("%s\nCharacters      : %d", report, correctChars+incorrectChars)
+	report = fmt.Sprintf("%s\nDuration        : %s", report, duration)
+	report = fmt.Sprintf("%s\n\nPress ESC to continue.", report)
 
 	scr.Clear()
 	drawStringAtCenter(scr, report, tcell.StyleDefault)
@@ -227,59 +249,62 @@ func saveMistakes(mistakes []mistake) {
 	writeValue(MISTAKE_DB, db)
 }
 
+// main execution point
 func main() {
-	var n int
-	var g int
 
+	// Word configuration variables
+	var wordCount int
+	var groupCount int
+
+	// Highlight configuration variables
+	var disableHighlightCurrent bool
+	var disableHighlightNext bool
+	var disableHighlight bool
+
+	// Miscellaneous configuration variables
+	var noSkip bool
+	var disableBackspace bool
+	var disableReport bool
+	var disableTheme bool
+	var useNormalCursor bool
+	var maxLineLength int
+	var timeoutDuration int
+	var startParagraphIndex int
+
+	// File and mode configuration variables
 	var rawMode bool
 	var oneShotMode bool
-	var noHighlightCurrent bool
-	var noHighlightNext bool
-	var noHighlight bool
-	var maxLineLen int
-	var noSkip bool
-	var noBackspace bool
-	var noReport bool
-	var noTheme bool
-	var normalCursor bool
-	var timeout int
-	var startParagraph int
-
 	var listFlag string
-	var wordFile string
-	var quoteFile string
-
+	var wordFilePath string
+	var quoteFilePath string
 	var themeName string
-	var showWpm bool
+	var showWordsPerMinute bool
 	var multiMode bool
 	var versionFlag bool
 	var boldFlag bool
 
-	var err error
-	var testFn func() []segment
+	// Extract type test function variable
+	var extractTypeTestFunction func() []segment
 
-	flag.IntVar(&n, "n", 50, "")
-	flag.IntVar(&g, "g", 1, "")
-	flag.IntVar(&startParagraph, "start", -1, "")
-
-	flag.IntVar(&maxLineLen, "w", 80, "")
-	flag.IntVar(&timeout, "t", -1, "")
-
+	// Set the command line flags
+	flag.IntVar(&wordCount, "n", 50, "")
+	flag.IntVar(&groupCount, "g", 1, "")
+	flag.IntVar(&startParagraphIndex, "start", -1, "")
+	flag.IntVar(&maxLineLength, "w", 108*5, "") // The default screen size is 540 which is very wide.
+	flag.IntVar(&timeoutDuration, "t", -1, "")
 	flag.BoolVar(&versionFlag, "v", false, "")
-
-	flag.StringVar(&wordFile, "words", "", "")
-	flag.StringVar(&quoteFile, "quotes", "", "")
-
-	flag.BoolVar(&showWpm, "showwpm", false, "")
+	flag.StringVar(&wordFilePath, "words", "", "")
+	flag.StringVar(&quoteFilePath, "quotes", "", "")
+	flag.BoolVar(&showWordsPerMinute, "showwpm", false, "")
 	flag.BoolVar(&noSkip, "noskip", false, "")
-	flag.BoolVar(&normalCursor, "blockcursor", false, "")
-	flag.BoolVar(&noBackspace, "nobackspace", false, "")
-	flag.BoolVar(&noTheme, "notheme", false, "")
+	flag.BoolVar(&useNormalCursor, "blockcursor", false, "")
+	flag.BoolVar(&disableBackspace, "nobackspace", false, "")
+	flag.BoolVar(&disableTheme, "notheme", false, "")
 	flag.BoolVar(&oneShotMode, "oneshot", false, "")
-	flag.BoolVar(&noHighlight, "nohighlight", false, "")
-	flag.BoolVar(&noHighlightCurrent, "highlight2", false, "")
-	flag.BoolVar(&noHighlightNext, "highlight1", false, "")
-	flag.BoolVar(&noReport, "noreport", false, "")
+	flag.BoolVar(&disableHighlight, "nohighlight", false, "")
+	flag.BoolVar(&disableHighlightCurrent, "highlight2", false, "")
+	flag.BoolVar(&disableHighlightNext, "highlight1", false, "")
+	flag.BoolVar(&disableReport, "noreport", false, "")
 	flag.BoolVar(&boldFlag, "bold", false, "")
 	flag.BoolVar(&csvMode, "csv", false, "")
 	flag.BoolVar(&jsonMode, "json", false, "")
@@ -288,126 +313,146 @@ func main() {
 	flag.StringVar(&themeName, "theme", "default", "")
 	flag.StringVar(&listFlag, "list", "", "")
 
+	// Assign a custom function to handle usage
 	flag.Usage = func() { os.Stdout.Write([]byte(usage)) }
 	flag.Parse()
 
+	// List the files in the specified directory
 	if listFlag != "" {
 		prefix := listFlag + "/"
-		for path, _ := range packedFiles {
-			if strings.Index(path, prefix) == 0 {
-				_, f := filepath.Split(path)
-				fmt.Println(f)
+		for filePath, _ := range packedFiles {
+			if strings.Index(filePath, prefix) == 0 {
+				_, fileName := filepath.Split(filePath)
+				fmt.Println(fileName)
 			}
 		}
 
 		os.Exit(0)
 	}
 
+	// Print version information
 	if versionFlag {
 		fmt.Fprintf(os.Stderr, "tt version 0.4.2\n")
 		os.Exit(1)
 	}
 
-	if noTheme {
+	// Disable theme if requested
+	if disableTheme {
 		os.Setenv("TCELL_TRUECOLOR", "disable")
 	}
 
-	reflow := func(s string) string {
-		sw, _ := scr.Size()
-
-		wsz := maxLineLen
-		if wsz > sw {
-			wsz = sw - 8
+	// Function to reflow the text to fit the screen
+	reflowTextForScreen := func(inputText string) string {
+		screenWidth, _ := scr.Size()
+		// Adjust window size based on screen size
+		windowSize := maxLineLength
+		if windowSize > screenWidth {
+			windowSize = screenWidth - 8
 		}
 
-		s = regexp.MustCompile("\\s+").ReplaceAllString(s, " ")
+		// Replace multiple spaces with single space
+		inputText = regexp.MustCompile("\\s+").ReplaceAllString(inputText, " ")
 		return strings.Replace(
-			wordWrap(strings.Trim(s, " "), wsz),
+			wordWrap(strings.Trim(inputText, " "), windowSize),
 			"\n", " \n", -1)
 	}
 
+	// Assign the test generation function based on input configuration
 	switch {
-	case wordFile != "":
-		testFn = generateWordTest(wordFile, n, g)
-	case quoteFile != "":
-		testFn = generateQuoteTest(quoteFile)
+	case wordFilePath != "":
+		extractTypeTestFunction = generateWordTest(wordFilePath, wordCount, groupCount)
+	case quoteFilePath != "":
+		extractTypeTestFunction = generateQuoteTest(quoteFilePath)
 	case !isatty.IsTerminal(os.Stdin.Fd()):
-		b, err := ioutil.ReadAll(os.Stdin)
+		buffer, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			panic(err)
 		}
-
-		testFn = generateTestFromData(b, rawMode, multiMode)
+		extractTypeTestFunction = generateTestFromData(buffer, rawMode, multiMode)
 	case len(flag.Args()) > 0:
-		path := flag.Args()[0]
-		testFn = generateTestFromFile(path, startParagraph)
+		typingTextPath := flag.Args()[0]
+		extractTypeTestFunction = generateTestFromFile(typingTextPath, startParagraphIndex)
 	default:
-		testFn = generateWordTest("1000en", n, g)
+		extractTypeTestFunction = generateWordTest("1000en", wordCount, groupCount)
 	}
 
+	var err error
 	scr, err = tcell.NewScreen()
 	if err != nil {
 		panic(err)
 	}
 
+	// Initialize the screen
 	if err := scr.Init(); err != nil {
 		panic(err)
 	}
 
+	// Defer function to finalize the screen in case of error
 	defer func() {
-		if r := recover(); r != nil {
+		if recovery := recover(); recovery != nil {
 			scr.Fini()
-			panic(r)
+			panic(recovery)
 		}
 	}()
 
-	var typer *typer
-	if noTheme {
-		typer = createDefaultTyper(scr)
+	// Initialize the typer
+	var typingMachine *typer
+	if disableTheme {
+		typingMachine = createDefaultTyper(scr)
 	} else {
-		typer = createTyper(scr, boldFlag, themeName)
+		typingMachine = createTyper(scr, boldFlag, themeName)
 	}
 
-	if noHighlightNext || noHighlight {
-		typer.currentWordStyle = typer.nextWordStyle
-		typer.nextWordStyle = typer.defaultStyle
+	// Update highlighting styles based on flags
+	if disableHighlightNext || disableHighlight {
+		typingMachine.currentWordStyle = typingMachine.nextWordStyle
+		typingMachine.nextWordStyle = typingMachine.defaultStyle
+	}
+	if disableHighlightCurrent || disableHighlight {
+		typingMachine.currentWordStyle = typingMachine.defaultStyle
 	}
 
-	if noHighlightCurrent || noHighlight {
-		typer.currentWordStyle = typer.defaultStyle
+	// Update typer options
+	typingMachine.SkipWord = !noSkip
+	typingMachine.DisableBackspace = disableBackspace
+	typingMachine.BlockCursor = useNormalCursor
+	typingMachine.ShowWpm = showWordsPerMinute
+
+	// Adjust timeout duration if specified
+	if timeoutDuration != -1 {
+		timeoutDuration *= 1e9
 	}
 
-	typer.SkipWord = !noSkip
-	typer.DisableBackspace = noBackspace
-	typer.BlockCursor = normalCursor
-	typer.ShowWpm = showWpm
-
-	if timeout != -1 {
-		timeout *= 1E9
-	}
-
-	var tests [][]segment
+	// Initialize segment list and index
+	var lstx2OfSegmentsFound [][]segment
 	var idx = 0
 
+	// Typing loop
 	for {
-		if idx >= len(tests) {
-			tests = append(tests, testFn())
+		// Generate segments
+		if idx >= len(lstx2OfSegmentsFound) {
+			lstx2OfSegmentsFound = append(lstx2OfSegmentsFound, extractTypeTestFunction())
 		}
 
-		if tests[idx] == nil {
+		// Handle no segment found
+		if lstx2OfSegmentsFound[idx] == nil {
+			fmt.Printf("No text found on index %d\n", idx)
 			exit(0)
 		}
 
+		// Reflow text for screen if not in raw mode
 		if !rawMode {
-			for i, _ := range tests[idx] {
-				tests[idx][i].Text = reflow(tests[idx][i].Text)
+			for i, _ := range lstx2OfSegmentsFound[idx] {
+				lstx2OfSegmentsFound[idx][i].Text = reflowTextForScreen(lstx2OfSegmentsFound[idx][i].Text)
 			}
 		}
 
-		nerrs, ncorrect, t, rc, mistakes := typer.Start(tests[idx], time.Duration(timeout))
+		// Start typing
+		errorCount, correctCount, duration, returnCode, mistakes := typingMachine.Start(lstx2OfSegmentsFound[idx], time.Duration(timeoutDuration))
 		saveMistakes(mistakes)
 
-		switch rc {
+		// Handle typing return code
+		switch returnCode {
 		case TyperNext:
 			idx++
 		case TyperPrevious:
@@ -415,17 +460,13 @@ func main() {
 				idx--
 			}
 		case TyperComplete:
-			cpm := int(float64(ncorrect) / (float64(t) / 60E9))
-			wpm := cpm / 5
-			accuracy := float64(ncorrect) / float64(nerrs+ncorrect) * 100
-
-			results = append(results, result{wpm, cpm, accuracy, time.Now().Unix(), mistakes})
-			if !noReport {
+			if !disableReport {
 				attribution := ""
-				if len(tests[idx]) == 1 {
-					attribution = tests[idx][0].Attribution
+				if len(lstx2OfSegmentsFound[idx]) == 1 {
+					attribution = lstx2OfSegmentsFound[idx][0].Attribution
 				}
-				showReport(scr, cpm, wpm, accuracy, attribution, mistakes)
+
+				showReport(scr, duration, correctCount, errorCount, attribution, mistakes)
 			}
 			if oneShotMode {
 				exit(0)
@@ -436,10 +477,10 @@ func main() {
 			exit(1)
 
 		case TyperResize:
-			//Resize events restart the test, this shouldn't be a problem in the vast majority of cases
-			//and allows us to avoid baking rewrapping logic into the typer.
+			// Resize events restart the test, this shouldn't be a problem in the vast majority of cases
+			// and allows us to avoid baking rewrapping logic into the typer.
 
-			//TODO: implement state-preserving resize (maybe)
+			// TODO: implement state-preserving resize (maybe)
 		}
 	}
 }
