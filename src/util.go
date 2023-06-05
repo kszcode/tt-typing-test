@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -175,33 +175,40 @@ func calcStringDimensions(s string) (nc, nr int) {
 	return
 }
 
-func newTcellColor(s string) (tcell.Color, error) {
-	if len(s) != 7 || s[0] != '#' {
-		return 0, fmt.Errorf("%s is not a valid hex color", s)
+// makeTcellColorFromHex converts a hex color string to a tcell.Color value.
+func makeTcellColorFromHex(hexColor string) (tcell.Color, error) {
+	// Validate that the string is a 7-character hex color (like "#FFFFFF").
+	if len(hexColor) != 7 || hexColor[0] != '#' {
+		return 0, fmt.Errorf("%s is not a valid hex color", hexColor)
 	}
 
-	tonum := func(c byte) int32 {
-		if c > '9' {
-			if c >= 'a' {
-				return (int32)(c - 'a' + 10)
-			} else {
-				return (int32)(c - 'A' + 10)
+	// hexCharToDecimal function converts a hex character into a decimal number.
+	hexCharToDecimal := func(hexChar byte) int32 {
+		// If the character is greater than '9', it's a letter.
+		if hexChar > '9' {
+			// Handle lowercase letters
+			if hexChar >= 'a' {
+				return (int32)(hexChar - 'a' + 10)
+			} else { // Handle uppercase letters
+				return (int32)(hexChar - 'A' + 10)
 			}
-		} else {
-			return (int32)(c - '0')
+		} else { // If it's less than or equal to '9', it's a digit.
+			return (int32)(hexChar - '0')
 		}
 	}
 
-	r := tonum(s[1])<<4 | tonum(s[2])
-	g := tonum(s[3])<<4 | tonum(s[4])
-	b := tonum(s[5])<<4 | tonum(s[6])
+	// Extract and convert each RGB component from the hex color.
+	redComponent := hexCharToDecimal(hexColor[1])<<4 | hexCharToDecimal(hexColor[2])
+	greenComponent := hexCharToDecimal(hexColor[3])<<4 | hexCharToDecimal(hexColor[4])
+	blueComponent := hexCharToDecimal(hexColor[5])<<4 | hexCharToDecimal(hexColor[6])
 
-	return tcell.NewRGBColor(r, g, b), nil
+	// Return a new tcell.Color object created from the RGB components.
+	return tcell.NewRGBColor(redComponent, greenComponent, blueComponent), nil
 }
 
 func readResource(typ, name string) []byte {
 	if name == "-" {
-		b, err := ioutil.ReadAll(os.Stdin)
+		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			panic(err)
 		}
@@ -209,12 +216,12 @@ func readResource(typ, name string) []byte {
 		return b
 	}
 
-	if b, err := ioutil.ReadFile(name); err == nil {
+	if b, err := os.ReadFile(name); err == nil {
 		return b
 	}
 
 	for _, d := range CONFIG_DIRS {
-		if b, err := ioutil.ReadFile(filepath.Join(d, typ, name)); err == nil {
+		if b, err := os.ReadFile(filepath.Join(d, typ, name)); err == nil {
 			return b
 		}
 	}

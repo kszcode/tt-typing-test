@@ -32,7 +32,7 @@ func init() {
 }
 
 func readValue(path string, o interface{}) error {
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 
 	if err != nil {
 		return err

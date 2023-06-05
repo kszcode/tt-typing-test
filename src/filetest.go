@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
@@ -35,7 +35,7 @@ func generateTestFromFile(filePath string, startParagraph int) func() []segment 
 	currentParagraphIdx := fileStateDB[filePath] - 1
 
 	// Read the file content
-	if fileContentBytes, err := ioutil.ReadFile(filePath); err != nil {
+	if fileContentBytes, err := os.ReadFile(filePath); err != nil {
 		die("Failed to read %s.", filePath) // Exit the program if the file reading fails
 	} else {
 		// Convert the file content to string and split it into paragraphs

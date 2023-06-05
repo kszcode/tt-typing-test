@@ -161,22 +161,22 @@ func createTyper(scr tcell.Screen, bold bool, themeName string) *typer {
 	var bgcol, fgcol, hicol, hicol2, hicol3, errcol tcell.Color
 	var err error
 
-	if bgcol, err = newTcellColor(theme["bgcol"]); err != nil {
+	if bgcol, err = makeTcellColorFromHex(theme["bgcol"]); err != nil {
 		die("bgcol is not defined and/or a valid hex colour.")
 	}
-	if fgcol, err = newTcellColor(theme["fgcol"]); err != nil {
+	if fgcol, err = makeTcellColorFromHex(theme["fgcol"]); err != nil {
 		die("fgcol is not defined and/or a valid hex colour.")
 	}
-	if hicol, err = newTcellColor(theme["hicol"]); err != nil {
+	if hicol, err = makeTcellColorFromHex(theme["hicol"]); err != nil {
 		die("hicol is not defined and/or a valid hex colour.")
 	}
-	if hicol2, err = newTcellColor(theme["hicol2"]); err != nil {
+	if hicol2, err = makeTcellColorFromHex(theme["hicol2"]); err != nil {
 		die("hicol2 is not defined and/or a valid hex colour.")
 	}
-	if hicol3, err = newTcellColor(theme["hicol3"]); err != nil {
+	if hicol3, err = makeTcellColorFromHex(theme["hicol3"]); err != nil {
 		die("hicol3 is not defined and/or a valid hex colour.")
 	}
-	if errcol, err = newTcellColor(theme["errcol"]); err != nil {
+	if errcol, err = makeTcellColorFromHex(theme["errcol"]); err != nil {
 		die("errcol is not defined and/or a valid hex colour.")
 	}
 
