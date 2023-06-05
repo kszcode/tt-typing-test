@@ -148,30 +148,44 @@ func drawStringAtCenter(scr tcell.Screen, s string, style tcell.Style) {
 	drawString(scr, x, y, s, -1, style)
 }
 
-func calcStringDimensions(s string) (nc, nr int) {
-	if s == "" {
+// calcStringDimensions calculates the dimensions of a string, returning the number
+// of columns (maximum line length) and the number of rows (number of lines).
+func calcStringDimensions(inputStr string) (numColumns, numRows int) {
+	// Case when string is empty.
+	if inputStr == "" {
 		return 0, 0
 	}
 
-	c := 0
+	// Initialize character count in a line.
+	charCountInLine := 0
 
-	for _, x := range s {
-		if x == '\n' {
-			nr++
-			if c > nc {
-				nc = c
+	// Iterate over each character in the string.
+	for _, char := range inputStr {
+		// Check if character is a new line.
+		if char == '\n' {
+			// If it is, increment the number of rows.
+			numRows++
+			// If the character count in this line is greater than the maximum columns seen so far,
+			// update the number of columns.
+			if charCountInLine > numColumns {
+				numColumns = charCountInLine
 			}
-			c = 0
+			// Reset the character count for the new line.
+			charCountInLine = 0
 		} else {
-			c++
+			// If it's not a new line, increment the character count for this line.
+			charCountInLine++
 		}
 	}
 
-	nr++
-	if c > nc {
-		nc = c
+	// Increment row count to account for the last line (or single line if no '\n' characters)
+	numRows++
+	// Check if the character count in the last line is greater than the maximum columns seen so far.
+	if charCountInLine > numColumns {
+		numColumns = charCountInLine
 	}
 
+	// Return the number of columns and rows.
 	return
 }
 

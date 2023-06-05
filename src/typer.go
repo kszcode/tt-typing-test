@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"runtime"
 	"strconv"
@@ -32,10 +31,11 @@ type mistake struct {
 	Typed string `json:"typed"`
 }
 
-type typer struct {
+type Typer struct {
 	Screen           tcell.Screen
 	OnStart          func()
 	SkipWord         bool
+	ReaderMode       bool
 	ShowWpm          bool
 	DisableBackspace bool
 	BlockCursor      bool
@@ -49,7 +49,11 @@ type typer struct {
 	defaultStyle        tcell.Style
 }
 
-func NewTyper(screen tcell.Screen, emboldenTypedText bool, fgColor, bgColor, hiColor, hiColor2, hiColor3, errColor tcell.Color) *typer {
+func NewTyper(
+	screen tcell.Screen,
+	emboldenTypedText bool,
+	fgColor, bgColor, hiColor, hiColor2, hiColor3, errColor tcell.Color,
+) *Typer {
 	var tty io.Writer
 	def := tcell.StyleDefault.
 		Foreground(fgColor).
@@ -58,7 +62,7 @@ func NewTyper(screen tcell.Screen, emboldenTypedText bool, fgColor, bgColor, hiC
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 	// Will fail on windows, but tty is still mostly usable via tcell
 	if err != nil {
-		tty = ioutil.Discard
+		tty = io.Discard
 	}
 
 	correctStyle := def.Foreground(hiColor)
@@ -66,7 +70,7 @@ func NewTyper(screen tcell.Screen, emboldenTypedText bool, fgColor, bgColor, hiC
 		correctStyle = correctStyle.Bold(true)
 	}
 
-	return &typer{
+	return &Typer{
 		Screen:   screen,
 		SkipWord: true,
 		Tty:      tty,
@@ -80,7 +84,7 @@ func NewTyper(screen tcell.Screen, emboldenTypedText bool, fgColor, bgColor, hiC
 	}
 }
 
-func (t *typer) Start(
+func (t *Typer) Start(
 	listOfSegmentsToType []segment,
 	timeout time.Duration,
 ) (
@@ -125,15 +129,21 @@ func (t *typer) Start(
 	return
 }
 
-func extractMistypedWords(text []rune, typed []rune) (mistakes []mistake) {
+func extractMistypedWords(
+	text []rune,
+	typed []rune,
+	readMode bool,
+) (mistakes []mistake) {
 	var word []rune
 	var typedWord []rune
 	isMismatched := false
 
 	for i := range text {
 		if text[i] == ' ' {
-			if isMismatched {
-				mistakes = append(mistakes, mistake{string(word), string(typedWord)})
+			strTypedWord := string(typedWord)
+			lengthOfTypedWord := len(strTypedWord)
+			if isMismatched && (lengthOfTypedWord > 0) {
+				mistakes = append(mistakes, mistake{string(word), strTypedWord})
 			}
 
 			word = word[:0]
@@ -153,7 +163,9 @@ func extractMistypedWords(text []rune, typed []rune) (mistakes []mistake) {
 		}
 
 		if typed[i] == 0 {
-			typedWord = append(typedWord, '_')
+			if !readMode {
+				typedWord = append(typedWord, '_')
+			}
 		} else {
 			typedWord = append(typedWord, typed[i])
 		}
@@ -166,7 +178,7 @@ func extractMistypedWords(text []rune, typed []rune) (mistakes []mistake) {
 	return
 }
 
-func (t *typer) start(
+func (t *Typer) start(
 	textToType string,
 	timeLimit time.Duration,
 	startImmediately bool,
@@ -211,7 +223,8 @@ func (t *typer) start(
 		numErrors = 0
 		numCorrect = 0
 
-		mistakes = extractMistypedWords(referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText])
+		mistakes = extractMistypedWords(
+			referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText], t.ReaderMode)
 
 		for i := 0; i < cursorPositionInText; i++ {
 			if referenceText[i] != '\n' {
@@ -432,10 +445,13 @@ func (t *typer) start(
 					}
 				}
 			case tcell.KeyRune:
-				if cursorPositionInText < len(referenceText) {
+				if cursorPositionInText <= len(referenceText) {
 					if t.SkipWord && ev.Rune() == ' ' {
-						if cursorPositionInText > 0 && referenceText[cursorPositionInText-1] == ' ' && referenceText[cursorPositionInText] != ' ' { // Do nothing on word boundaries.
-							break
+						if !t.ReaderMode && cursorPositionInText > 0 {
+							prevCharacterIsSpace := referenceText[cursorPositionInText-1] == ' '
+							if prevCharacterIsSpace && referenceText[cursorPositionInText] != ' ' { // Do nothing on word boundaries.
+								break
+							}
 						}
 
 						for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {

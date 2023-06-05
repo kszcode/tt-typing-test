@@ -140,7 +140,7 @@ func showReport(
 	}
 }
 
-func createDefaultTyper(scr tcell.Screen) *typer {
+func createDefaultTyper(scr tcell.Screen) *Typer {
 	return NewTyper(scr, true, tcell.ColorDefault,
 		tcell.ColorDefault,
 		tcell.ColorWhite,
@@ -149,7 +149,7 @@ func createDefaultTyper(scr tcell.Screen) *typer {
 		tcell.ColorMaroon)
 }
 
-func createTyper(scr tcell.Screen, bold bool, themeName string) *typer {
+func createTyper(scr tcell.Screen, bold bool, themeName string) *Typer {
 	var theme map[string]string
 
 	if b := readResource("themes", themeName); b == nil {
@@ -203,6 +203,7 @@ File Mode
                         reset progress on a given file.
 Aesthetics
     -showwpm            Display WPM whilst typing.
+    -reader-mode        In reader mode, allow to have skip through text using space
     -theme THEMEFILE    The theme to use. 
     -w                  The maximum line length in characters. This option is 
     -notheme            Attempt to use the default terminal theme. 
@@ -263,6 +264,7 @@ func main() {
 
 	// Miscellaneous configuration variables
 	var noSkip bool
+	var readerMode bool
 	var disableBackspace bool
 	var disableReport bool
 	var disableTheme bool
@@ -297,6 +299,8 @@ func main() {
 	flag.StringVar(&quoteFilePath, "quotes", "", "")
 	flag.BoolVar(&showWordsPerMinute, "showwpm", false, "")
 	flag.BoolVar(&noSkip, "noskip", false, "")
+	flag.BoolVar(&readerMode, "reader-mode", true,
+		"In reader mode, allow to have skip through text using space")
 	flag.BoolVar(&useNormalCursor, "blockcursor", false, "")
 	flag.BoolVar(&disableBackspace, "nobackspace", false, "")
 	flag.BoolVar(&disableTheme, "notheme", false, "")
@@ -396,7 +400,7 @@ func main() {
 	}()
 
 	// Initialize the typer
-	var typingMachine *typer
+	var typingMachine *Typer
 	if disableTheme {
 		typingMachine = createDefaultTyper(scr)
 	} else {
@@ -414,6 +418,7 @@ func main() {
 
 	// Update typer options
 	typingMachine.SkipWord = !noSkip
+	typingMachine.ReaderMode = readerMode
 	typingMachine.DisableBackspace = disableBackspace
 	typingMachine.BlockCursor = useNormalCursor
 	typingMachine.ShowWpm = showWordsPerMinute
@@ -438,20 +443,22 @@ func main() {
 		}
 
 		// Handle no segment found
-		if lstx2OfSegmentsFound[idxOfPreparedSegments] == nil {
+		listOfSegmentsToType := lstx2OfSegmentsFound[idxOfPreparedSegments]
+		if listOfSegmentsToType == nil {
 			fmt.Printf("No text found on index %d\n", idxOfPreparedSegments)
 			exit(0)
 		}
 
 		// Reflow text for screen if not in raw mode
 		if !rawMode {
-			for i, _ := range lstx2OfSegmentsFound[idxOfPreparedSegments] {
-				lstx2OfSegmentsFound[idxOfPreparedSegments][i].Text = reflowTextForScreen(lstx2OfSegmentsFound[idxOfPreparedSegments][i].Text)
+			for i, _ := range listOfSegmentsToType {
+				listOfSegmentsToType[i].Text = reflowTextForScreen(listOfSegmentsToType[i].Text)
 			}
 		}
 
 		// Start typing
-		errorCount, correctCount, duration, returnCode, mistakes := typingMachine.Start(lstx2OfSegmentsFound[idxOfPreparedSegments], time.Duration(timeoutDuration))
+		errorCount, correctCount, duration, returnCode, mistakes :=
+			typingMachine.Start(listOfSegmentsToType, time.Duration(timeoutDuration))
 		saveMistakes(mistakes)
 
 		// Handle typing return code
@@ -468,8 +475,8 @@ func main() {
 		case UserCompleted:
 			if !disableReport {
 				attribution := ""
-				if len(lstx2OfSegmentsFound[idxOfPreparedSegments]) == 1 {
-					attribution = lstx2OfSegmentsFound[idxOfPreparedSegments][0].Attribution
+				if len(listOfSegmentsToType) == 1 {
+					attribution = listOfSegmentsToType[0].Attribution
 				}
 
 				showReport(scr, duration, correctCount, errorCount, attribution, mistakes)
