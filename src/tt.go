@@ -284,7 +284,7 @@ func main() {
 	var boldFlag bool
 
 	// Extract type test function variable
-	var extractTypeTestFunction func() []segment
+	var customFunctionToExtractNextListOfSegments func() []segment
 
 	// Set the command line flags
 	flag.IntVar(&wordCount, "n", 50, "")
@@ -360,20 +360,20 @@ func main() {
 	// Assign the test generation function based on input configuration
 	switch {
 	case wordFilePath != "":
-		extractTypeTestFunction = generateWordTest(wordFilePath, wordCount, groupCount)
+		customFunctionToExtractNextListOfSegments = generateWordTest(wordFilePath, wordCount, groupCount)
 	case quoteFilePath != "":
-		extractTypeTestFunction = generateQuoteTest(quoteFilePath)
+		customFunctionToExtractNextListOfSegments = generateQuoteTest(quoteFilePath)
 	case !isatty.IsTerminal(os.Stdin.Fd()):
 		buffer, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			panic(err)
 		}
-		extractTypeTestFunction = generateTestFromData(buffer, rawMode, multiMode)
+		customFunctionToExtractNextListOfSegments = generateTestFromData(buffer, rawMode, multiMode)
 	case len(flag.Args()) > 0:
 		typingTextPath := flag.Args()[0]
-		extractTypeTestFunction = generateTestFromFile(typingTextPath, startParagraphIndex)
+		customFunctionToExtractNextListOfSegments = generateTestFromFile(typingTextPath, startParagraphIndex)
 	default:
-		extractTypeTestFunction = generateWordTest("1000en", wordCount, groupCount)
+		customFunctionToExtractNextListOfSegments = generateWordTest("1000en", wordCount, groupCount)
 	}
 
 	var err error
@@ -425,45 +425,51 @@ func main() {
 
 	// Initialize segment list and index
 	var lstx2OfSegmentsFound [][]segment
-	var idx = 0
+	var idxOfPreparedSegments = 0
 
 	// Typing loop
 	for {
 		// Generate segments
-		if idx >= len(lstx2OfSegmentsFound) {
-			lstx2OfSegmentsFound = append(lstx2OfSegmentsFound, extractTypeTestFunction())
+		if idxOfPreparedSegments >= len(lstx2OfSegmentsFound) {
+			lstx2OfSegmentsFound = append(lstx2OfSegmentsFound, customFunctionToExtractNextListOfSegments())
+			// Note: customFunctionToExtractNextListOfSegments should be a different abstraction
+			// it should be called on an object like structure,
+			// where if we want we can manipulate the object before we call this function
 		}
 
 		// Handle no segment found
-		if lstx2OfSegmentsFound[idx] == nil {
-			fmt.Printf("No text found on index %d\n", idx)
+		if lstx2OfSegmentsFound[idxOfPreparedSegments] == nil {
+			fmt.Printf("No text found on index %d\n", idxOfPreparedSegments)
 			exit(0)
 		}
 
 		// Reflow text for screen if not in raw mode
 		if !rawMode {
-			for i, _ := range lstx2OfSegmentsFound[idx] {
-				lstx2OfSegmentsFound[idx][i].Text = reflowTextForScreen(lstx2OfSegmentsFound[idx][i].Text)
+			for i, _ := range lstx2OfSegmentsFound[idxOfPreparedSegments] {
+				lstx2OfSegmentsFound[idxOfPreparedSegments][i].Text = reflowTextForScreen(lstx2OfSegmentsFound[idxOfPreparedSegments][i].Text)
 			}
 		}
 
 		// Start typing
-		errorCount, correctCount, duration, returnCode, mistakes := typingMachine.Start(lstx2OfSegmentsFound[idx], time.Duration(timeoutDuration))
+		errorCount, correctCount, duration, returnCode, mistakes := typingMachine.Start(lstx2OfSegmentsFound[idxOfPreparedSegments], time.Duration(timeoutDuration))
 		saveMistakes(mistakes)
 
 		// Handle typing return code
 		switch returnCode {
-		case TyperNext:
-			idx++
-		case TyperPrevious:
-			if idx > 0 {
-				idx--
+		case UserAskedForNext:
+			idxOfPreparedSegments++
+		case UserAskedForPrevious:
+			if idxOfPreparedSegments == 0 {
+				// TODO: on customFunctionToExtractNextListOfSegments
+				// needs to be recalculated because now we need to shift the start index back if it permits it
+			} else if idxOfPreparedSegments > 0 {
+				idxOfPreparedSegments--
 			}
-		case TyperComplete:
+		case UserCompleted:
 			if !disableReport {
 				attribution := ""
-				if len(lstx2OfSegmentsFound[idx]) == 1 {
-					attribution = lstx2OfSegmentsFound[idx][0].Attribution
+				if len(lstx2OfSegmentsFound[idxOfPreparedSegments]) == 1 {
+					attribution = lstx2OfSegmentsFound[idxOfPreparedSegments][0].Attribution
 				}
 
 				showReport(scr, duration, correctCount, errorCount, attribution, mistakes)
@@ -472,11 +478,11 @@ func main() {
 				exit(0)
 			}
 
-			idx++
-		case TyperSigInt:
+			idxOfPreparedSegments++
+		case UserAskedForSigInt:
 			exit(1)
 
-		case TyperResize:
+		case TyperAppResize:
 			// Resize events restart the test, this shouldn't be a problem in the vast majority of cases
 			// and allows us to avoid baking rewrapping logic into the typer.
 

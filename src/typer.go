@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	TyperComplete = iota
-	TyperSigInt
-	TyperEscape
-	TyperPrevious
-	TyperNext
-	TyperResize
+	UserCompleted = iota
+	UserAskedForSigInt
+	UserTypedEscape
+	UserAskedForPrevious
+	UserAskedForNext
+	TyperAppResize
 )
 
 type segment struct {
@@ -87,36 +87,37 @@ func (t *typer) Start(
 	numErrors,
 	numCorrect int,
 	duration time.Duration,
-	rc int,
+	returnCode int,
 	mistakes []mistake,
 ) {
 	timeLeft := timeout
 
 	for i, segmentToType := range listOfSegmentsToType {
 		startImmediately := true
-		var d time.Duration
+		var testDuration time.Duration
 		var errCount, correctCount int
-		var m []mistake
+		var mistakesMadeDuringTest []mistake
 
 		if i == 0 {
 			startImmediately = false
 		}
 
-		errCount, correctCount, rc, d, m = t.start(segmentToType.Text, timeLeft, startImmediately, segmentToType.Attribution)
+		errCount, correctCount, returnCode, testDuration, mistakesMadeDuringTest =
+			t.start(segmentToType.Text, timeLeft, startImmediately, segmentToType.Attribution)
 
 		numErrors += errCount
 		numCorrect += correctCount
-		duration += d
-		mistakes = append(mistakes, m...)
+		duration += testDuration
+		mistakes = append(mistakes, mistakesMadeDuringTest...)
 
 		if timeout != -1 {
-			timeLeft -= d
+			timeLeft -= testDuration
 			if timeLeft <= 0 {
 				return
 			}
 		}
 
-		if rc != TyperComplete {
+		if returnCode != UserCompleted {
 			return
 		}
 	}
@@ -173,7 +174,7 @@ func (t *typer) start(
 ) (
 	numErrors int,
 	numCorrect int,
-	rc int,
+	returnCode int,
 	duration time.Duration,
 	mistakes []mistake,
 ) {
@@ -222,7 +223,7 @@ func (t *typer) start(
 			}
 		}
 
-		rc = TyperComplete
+		returnCode = UserCompleted
 		duration = time.Now().Sub(startTime)
 	}
 
@@ -375,7 +376,7 @@ func (t *typer) start(
 
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
-			rc = TyperResize
+			returnCode = TyperAppResize
 			return
 		case *tcell.EventKey:
 			if runtime.GOOS != "windows" && ev.Key() == tcell.KeyBackspace { // Control+backspace on unix terms
@@ -391,22 +392,22 @@ func (t *typer) start(
 
 			switch key := ev.Key(); key {
 			case tcell.KeyCtrlC:
-				rc = TyperSigInt
+				returnCode = UserAskedForSigInt
 
 				return
 			case tcell.KeyEscape:
-				rc = TyperEscape
+				returnCode = UserTypedEscape
 
 				return
 			case tcell.KeyCtrlL:
 				t.Screen.Sync()
 
 			case tcell.KeyRight:
-				rc = TyperNext
+				returnCode = UserAskedForNext
 				return
 
 			case tcell.KeyLeft:
-				rc = TyperPrevious
+				returnCode = UserAskedForPrevious
 				return
 
 			case tcell.KeyCtrlW:

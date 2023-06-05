@@ -46,8 +46,12 @@ func generateTestFromFile(filePath string, startParagraph int) func() []segment 
 	return func() []segment {
 		// Increment the current paragraph index
 		currentParagraphIdx++
+		// step back the save, because this way we can resume the test from the previous paragraph if needed
+		// requires restart to step back, so it should be safe enough for now, otherwise we need to
+		// change the logic for customFunctionToExtractNextListOfSegments
+		stepBackSize := 1
 		// Update the state with the new paragraph index
-		fileStateDB[filePath] = currentParagraphIdx
+		fileStateDB[filePath] = currentParagraphIdx - stepBackSize
 		// Persist the updated state to disk
 		writeValue(FILE_STATE_DB, fileStateDB)
 
@@ -57,8 +61,9 @@ func generateTestFromFile(filePath string, startParagraph int) func() []segment 
 		}
 		// get the last 81 characters of the filePath
 		filePathShort := filePath
-		if len(filePathShort) > 79 {
-			filePathShort = fmt.Sprintf("..%s", filePath[len(filePath)-80:])
+		maxSizeOfFilePath := 54
+		if len(filePathShort) > maxSizeOfFilePath {
+			filePathShort = fmt.Sprintf("..%s", filePath[len(filePath)-maxSizeOfFilePath:])
 		}
 		globalInfoAboutTheCurrentTest = fmt.Sprintf("\nParagraph: %d/%d\n\nFile: %s",
 			currentParagraphIdx+1, len(listOfParagraphs), filePathShort)
