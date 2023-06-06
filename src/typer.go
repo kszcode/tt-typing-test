@@ -486,7 +486,7 @@ func (t *Typer) redraw(
 	userTypedText []rune,
 	cursorPositionInText int,
 	xStartLeftSideOfScreen int,
-	yStartTopSideOfScreen int,
+	yStartTopSideOfSideOfScreen int,
 	numCols int,
 	numRows int,
 	attribution string,
@@ -494,7 +494,7 @@ func (t *Typer) redraw(
 	timeLimit time.Duration,
 ) {
 	cursorX := xStartLeftSideOfScreen
-	cursorY := yStartTopSideOfScreen
+	cursorY := yStartTopSideOfSideOfScreen
 	inWord := -1
 
 	for i := range referenceText {
@@ -548,7 +548,7 @@ func (t *Typer) redraw(
 	drawString(
 		t.Screen,
 		xStartLeftSideOfScreen+numCols-attributionWidth,
-		yStartTopSideOfScreen+numRows*yLineMultiplier+1,
+		yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+1,
 		attribution,
 		-1,
 		t.defaultStyle,
@@ -558,14 +558,14 @@ func (t *Typer) redraw(
 		remaining := timeLimit - time.Now().Sub(startTime)
 		drawString(t.Screen,
 			xStartLeftSideOfScreen+numCols/2,
-			yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+			yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
 			"      ",
 			-1,
 			t.defaultStyle,
 		)
 		drawString(t.Screen,
 			xStartLeftSideOfScreen+numCols/2,
-			yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+			yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
 			strconv.Itoa(int(remaining/1e9)+1),
 			-1,
 			t.defaultStyle,
@@ -573,26 +573,22 @@ func (t *Typer) redraw(
 	}
 
 	if t.ShowWpm && !startTime.IsZero() {
-		numErrors, numCorrect, _, duration := t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
-
+		//calculateStatistics()
+		_, numCorrect, _, duration := t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+		//returnCode = UserCompleted
 		if duration > 1e7 { // Avoid flashing large numbers on test start.
 			wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
 			drawString(t.Screen,
-				xStartLeftSideOfScreen,
-				yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
-				"WPM: "+strconv.Itoa(wpm),
-				-1,
-				t.defaultStyle,
-			)
-			drawString(t.Screen,
-				xStartLeftSideOfScreen+8,
-				yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
-				fmt.Sprintf("Errors: %d", numErrors),
+				xStartLeftSideOfScreen+numCols/2-4,
+				yStartTopSideOfSideOfScreen-2,
+				fmt.Sprintf("WPM: %-10d\n", wpm),
 				-1,
 				t.defaultStyle,
 			)
 		}
 	}
+
+	t.Screen.Show()
 }
 
 func (t *Typer) calculateStatistics(
