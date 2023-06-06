@@ -33,9 +33,8 @@ type mistake struct {
 	Typed string `json:"typed"`
 }
 
-type Typer struct {
+type TyperScreen struct {
 	Screen           tcell.Screen
-	OnStart          func()
 	SkipWord         bool
 	ReaderMode       bool
 	ShowWpm          bool
@@ -55,7 +54,7 @@ func NewTyper(
 	screen tcell.Screen,
 	emboldenTypedText bool,
 	fgColor, bgColor, hiColor, hiColor2, hiColor3, errColor tcell.Color,
-) *Typer {
+) *TyperScreen {
 	var tty io.Writer
 	def := tcell.StyleDefault.
 		Foreground(fgColor).
@@ -72,7 +71,7 @@ func NewTyper(
 		correctStyle = correctStyle.Bold(true)
 	}
 
-	return &Typer{
+	return &TyperScreen{
 		Screen:   screen,
 		SkipWord: true,
 		Tty:      tty,
@@ -86,7 +85,7 @@ func NewTyper(
 	}
 }
 
-func (t *Typer) Start(
+func (t *TyperScreen) Start(
 	listOfSegmentsToType []segment,
 	timeout time.Duration,
 ) (
@@ -180,7 +179,7 @@ func extractMistypedWords(
 	return
 }
 
-func (t *Typer) start(
+func (t *TyperScreen) start(
 	textToType string,
 	timeLimit time.Duration,
 	startImmediately bool,
@@ -232,7 +231,8 @@ func (t *Typer) start(
 			default:
 			}
 
-			time.Sleep(time.Duration(5e8))
+			halfSecond := time.Duration(5e8)
+			time.Sleep(halfSecond)
 			t.Screen.PostEventWait(nil)
 		}
 	}
@@ -360,7 +360,7 @@ func (t *Typer) start(
 	}
 }
 
-func (t *Typer) deleteWord(cursorPositionInText *int, referenceText []rune, userTypedText []rune) {
+func (t *TyperScreen) deleteWord(cursorPositionInText *int, referenceText []rune, userTypedText []rune) {
 	if *cursorPositionInText == 0 {
 		return
 	}
@@ -381,7 +381,7 @@ func (t *Typer) deleteWord(cursorPositionInText *int, referenceText []rune, user
 	}
 }
 
-func (t *Typer) redraw(
+func (t *TyperScreen) redraw(
 	referenceText []rune,
 	userTypedText []rune,
 	cursorPositionInText int,
@@ -491,24 +491,12 @@ func (t *Typer) redraw(
 	t.Screen.Show()
 }
 
-func (t *Typer) calculateStatistics(
+func (t *TyperScreen) calculateStatistics(
 	startTime time.Time,
 	referenceText []rune, userTypedText []rune, cursorPositionInText int,
 ) (
 	numErrors, numCorrect int, mistakes []mistake, duration time.Duration,
 ) {
-	//for i := 0; i < cursorPositionInText; i++ {
-	//	if referenceText[i] != userTypedText[i] {
-	//		numErrors++
-	//	}
-	//	if referenceText[i] != ' ' && referenceText[i] != '\n' {
-	//		numTyped++
-	//	}
-	//	if userTypedText[i] != ' ' && userTypedText[i] != '\n' {
-	//		numCorrect++
-	//	}
-	//}
-	//return numErrors, numCorrect, numTyped, int64(time.Now().Sub(startTime))
 
 	numErrors = 0
 	numCorrect = 0

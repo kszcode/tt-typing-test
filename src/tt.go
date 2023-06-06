@@ -140,7 +140,7 @@ func showReport(
 	}
 }
 
-func createDefaultTyper(scr tcell.Screen) *Typer {
+func createDefaultTyper(scr tcell.Screen) *TyperScreen {
 	return NewTyper(scr, true, tcell.ColorDefault,
 		tcell.ColorDefault,
 		tcell.ColorWhite,
@@ -149,7 +149,7 @@ func createDefaultTyper(scr tcell.Screen) *Typer {
 		tcell.ColorMaroon)
 }
 
-func createTyper(scr tcell.Screen, bold bool, themeName string) *Typer {
+func createTyper(scr tcell.Screen, bold bool, themeName string) *TyperScreen {
 	var theme map[string]string
 
 	if b := readResource("themes", themeName); b == nil {
@@ -400,28 +400,28 @@ func main() {
 	}()
 
 	// Initialize the typer
-	var typingMachine *Typer
+	var typerScreen *TyperScreen
 	if disableTheme {
-		typingMachine = createDefaultTyper(scr)
+		typerScreen = createDefaultTyper(scr)
 	} else {
-		typingMachine = createTyper(scr, boldFlag, themeName)
+		typerScreen = createTyper(scr, boldFlag, themeName)
 	}
 
 	// Update highlighting styles based on flags
 	if disableHighlightNext || disableHighlight {
-		typingMachine.currentWordStyle = typingMachine.nextWordStyle
-		typingMachine.nextWordStyle = typingMachine.defaultStyle
+		typerScreen.currentWordStyle = typerScreen.nextWordStyle
+		typerScreen.nextWordStyle = typerScreen.defaultStyle
 	}
 	if disableHighlightCurrent || disableHighlight {
-		typingMachine.currentWordStyle = typingMachine.defaultStyle
+		typerScreen.currentWordStyle = typerScreen.defaultStyle
 	}
 
 	// Update typer options
-	typingMachine.SkipWord = !noSkip
-	typingMachine.ReaderMode = readerMode
-	typingMachine.DisableBackspace = disableBackspace
-	typingMachine.BlockCursor = useNormalCursor
-	typingMachine.ShowWpm = showWordsPerMinute
+	typerScreen.SkipWord = !noSkip
+	typerScreen.ReaderMode = readerMode
+	typerScreen.DisableBackspace = disableBackspace
+	typerScreen.BlockCursor = useNormalCursor
+	typerScreen.ShowWpm = showWordsPerMinute
 
 	// Adjust timeout duration if specified
 	if timeoutDuration != -1 {
@@ -458,7 +458,7 @@ func main() {
 
 		// Start typing
 		errorCount, correctCount, duration, returnCode, mistakes :=
-			typingMachine.Start(listOfSegmentsToType, time.Duration(timeoutDuration))
+			typerScreen.Start(listOfSegmentsToType, time.Duration(timeoutDuration))
 		saveMistakes(mistakes)
 
 		// Handle typing return code
