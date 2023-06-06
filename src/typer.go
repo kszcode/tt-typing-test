@@ -242,7 +242,7 @@ func (t *Typer) start(
 		duration = time.Now().Sub(startTime)
 	}
 
-	redraw := func() {
+	redraw1 := func() {
 		cursorX := xStartLeftSideOfScreen
 		cursorY := yStartTopSideOfSideOfScreen
 		inWord := -1
@@ -364,7 +364,10 @@ func (t *Typer) start(
 
 	t.Screen.Clear()
 	for {
-		redraw()
+		redraw1()
+		//t.redraw(referenceText, userTypedText, cursorPositionInText,
+		//	xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
+		//	numCols, numRows, attribution, startTime, timeLimit)
 
 		ev := t.Screen.PollEvent()
 
@@ -456,17 +459,22 @@ func (t *Typer) start(
 				}
 
 				if cursorPositionInText == len(referenceText) {
-					calculateStatistics()
+					numErrors, numCorrect, mistakes, duration = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+					returnCode = UserCompleted
 					return
 				}
 			}
 		default: // tick
 			if timeLimit != -1 && !startTime.IsZero() && timeLimit <= time.Now().Sub(startTime) {
-				calculateStatistics()
+				numErrors, numCorrect, mistakes, duration = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+				returnCode = UserCompleted
 				return
 			}
 
-			redraw()
+			redraw1()
+			//t.redraw(referenceText, userTypedText, cursorPositionInText,
+			//	xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
+			//	numCols, numRows, attribution, startTime, timeLimit)
 		}
 	}
 }
@@ -490,4 +498,157 @@ func (t *Typer) deleteWord(cursorPositionInText *int, referenceText []rune, user
 		userTypedText[*cursorPositionInText] = referenceText[*cursorPositionInText]
 		*cursorPositionInText++
 	}
+}
+
+func (t *Typer) redraw(
+	referenceText []rune,
+	userTypedText []rune,
+	cursorPositionInText int,
+	xStartLeftSideOfScreen int,
+	yStartTopSideOfScreen int,
+	numCols int,
+	numRows int,
+	attribution string,
+	startTime time.Time,
+	timeLimit time.Duration,
+) {
+	cursorX := xStartLeftSideOfScreen
+	cursorY := yStartTopSideOfScreen
+	inWord := -1
+
+	for i := range referenceText {
+		style := t.defaultStyle
+
+		characterInSegment := referenceText[i]
+		if characterInSegment == '\n' {
+			cursorY += yLineMultiplier
+			cursorX = xStartLeftSideOfScreen
+			if inWord != -1 {
+				inWord++
+			}
+			continue
+		}
+
+		if i == cursorPositionInText {
+			t.Screen.ShowCursor(cursorX, cursorY)
+			inWord = 0
+		}
+
+		if i >= cursorPositionInText {
+			if characterInSegment == ' ' {
+				inWord++
+			} else if inWord == 0 {
+				style = t.currentWordStyle
+			} else if inWord == 1 {
+				style = t.nextWordStyle
+			} else {
+				style = t.defaultStyle
+			}
+		} else if characterInSegment != userTypedText[i] {
+			if characterInSegment == ' ' {
+				style = t.incorrectSpaceStyle
+			} else {
+				style = t.incorrectStyle
+			}
+		} else {
+			style = t.correctStyle
+		}
+
+		t.Screen.SetContent(cursorX, cursorY, characterInSegment, nil, style)
+		// only type the character in the row below if it is different from the correct character
+		if referenceText[i] != userTypedText[i] {
+			t.Screen.SetContent(cursorX, cursorY+1, userTypedText[i], nil, style)
+		}
+
+		cursorX++
+	}
+
+	attributionWidth, attributionHeight := calcStringDimensions(attribution)
+	drawString(
+		t.Screen,
+		xStartLeftSideOfScreen+numCols-attributionWidth,
+		yStartTopSideOfScreen+numRows*yLineMultiplier+1,
+		attribution,
+		-1,
+		t.defaultStyle,
+	)
+
+	if timeLimit != -1 && !startTime.IsZero() {
+		remaining := timeLimit - time.Now().Sub(startTime)
+		drawString(t.Screen,
+			xStartLeftSideOfScreen+numCols/2,
+			yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+			"      ",
+			-1,
+			t.defaultStyle,
+		)
+		drawString(t.Screen,
+			xStartLeftSideOfScreen+numCols/2,
+			yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+			strconv.Itoa(int(remaining/1e9)+1),
+			-1,
+			t.defaultStyle,
+		)
+	}
+
+	if t.ShowWpm && !startTime.IsZero() {
+		numErrors, numCorrect, _, duration := t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+
+		if duration > 1e7 { // Avoid flashing large numbers on test start.
+			wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
+			drawString(t.Screen,
+				xStartLeftSideOfScreen,
+				yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				"WPM: "+strconv.Itoa(wpm),
+				-1,
+				t.defaultStyle,
+			)
+			drawString(t.Screen,
+				xStartLeftSideOfScreen+8,
+				yStartTopSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				fmt.Sprintf("Errors: %d", numErrors),
+				-1,
+				t.defaultStyle,
+			)
+		}
+	}
+}
+
+func (t *Typer) calculateStatistics(
+	startTime time.Time,
+	referenceText []rune, userTypedText []rune, cursorPositionInText int,
+) (
+	numErrors, numCorrect int, mistakes []mistake, duration time.Duration,
+) {
+	//for i := 0; i < cursorPositionInText; i++ {
+	//	if referenceText[i] != userTypedText[i] {
+	//		numErrors++
+	//	}
+	//	if referenceText[i] != ' ' && referenceText[i] != '\n' {
+	//		numTyped++
+	//	}
+	//	if userTypedText[i] != ' ' && userTypedText[i] != '\n' {
+	//		numCorrect++
+	//	}
+	//}
+	//return numErrors, numCorrect, numTyped, int64(time.Now().Sub(startTime))
+
+	numErrors = 0
+	numCorrect = 0
+
+	mistakes = extractMistypedWords(
+		referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText], t.ReaderMode)
+
+	for i := 0; i < cursorPositionInText; i++ {
+		if referenceText[i] != '\n' {
+			if referenceText[i] != userTypedText[i] {
+				numErrors++
+			} else {
+				numCorrect++
+			}
+		}
+	}
+
+	duration = time.Now().Sub(startTime)
+	return
 }
