@@ -18,6 +18,8 @@ const (
 	UserAskedForPrevious
 	UserAskedForNext
 	TyperAppResize
+
+	yLineMultiplier = 2 // so it leaves space for the typed text, which will show the errors as well
 )
 
 type segment struct {
@@ -198,7 +200,7 @@ func (t *Typer) start(
 	screenWidth, screenHeight := t.Screen.Size()
 	numCols, numRows := calcStringDimensions(textToType)
 	xStartLeftSideOfScreen := (screenWidth - numCols) / 2
-	yLineMultiplier := 2 // so it leaves space for the typed text, which will show the errors as well
+
 	yStartTopSideOfSideOfScreen := (screenHeight - numRows*yLineMultiplier) / 2
 	if yStartTopSideOfSideOfScreen < 0 {
 		yStartTopSideOfSideOfScreen = 0
@@ -337,27 +339,6 @@ func (t *Typer) start(
 		t.Screen.Show()
 	}
 
-	deleteWord := func() {
-		if cursorPositionInText == 0 {
-			return
-		}
-
-		cursorPositionInText--
-
-		for cursorPositionInText > 0 && (referenceText[cursorPositionInText] == ' ' || referenceText[cursorPositionInText] == '\n') {
-			cursorPositionInText--
-		}
-
-		for cursorPositionInText > 0 && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {
-			cursorPositionInText--
-		}
-
-		if referenceText[cursorPositionInText] == ' ' || referenceText[cursorPositionInText] == '\n' {
-			userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
-			cursorPositionInText++
-		}
-	}
-
 	tickerCloser := make(chan bool)
 
 	// Inject nil events into the main event loop at regular intervals to force an update
@@ -394,7 +375,7 @@ func (t *Typer) start(
 		case *tcell.EventKey:
 			if runtime.GOOS != "windows" && ev.Key() == tcell.KeyBackspace { // Control+backspace on unix terms
 				if !t.DisableBackspace {
-					deleteWord()
+					t.deleteWord(&cursorPositionInText, referenceText, userTypedText)
 				}
 				continue
 			}
@@ -425,13 +406,13 @@ func (t *Typer) start(
 
 			case tcell.KeyCtrlW:
 				if !t.DisableBackspace {
-					deleteWord()
+					t.deleteWord(&cursorPositionInText, referenceText, userTypedText)
 				}
 
 			case tcell.KeyBackspace, tcell.KeyBackspace2:
 				if !t.DisableBackspace {
 					if ev.Modifiers() == tcell.ModAlt || ev.Modifiers() == tcell.ModCtrl {
-						deleteWord()
+						t.deleteWord(&cursorPositionInText, referenceText, userTypedText)
 					} else {
 						if cursorPositionInText == 0 {
 							break
@@ -487,5 +468,26 @@ func (t *Typer) start(
 
 			redraw()
 		}
+	}
+}
+
+func (t *Typer) deleteWord(cursorPositionInText *int, referenceText []rune, userTypedText []rune) {
+	if *cursorPositionInText == 0 {
+		return
+	}
+
+	*cursorPositionInText--
+
+	for *cursorPositionInText > 0 && (referenceText[*cursorPositionInText] == ' ' || referenceText[*cursorPositionInText] == '\n') {
+		*cursorPositionInText--
+	}
+
+	for *cursorPositionInText > 0 && referenceText[*cursorPositionInText] != ' ' && referenceText[*cursorPositionInText] != '\n' {
+		*cursorPositionInText--
+	}
+
+	if referenceText[*cursorPositionInText] == ' ' || referenceText[*cursorPositionInText] == '\n' {
+		userTypedText[*cursorPositionInText] = referenceText[*cursorPositionInText]
+		*cursorPositionInText++
 	}
 }
