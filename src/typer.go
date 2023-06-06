@@ -221,6 +221,124 @@ func (t *Typer) start(
 	// This variable starts at 0 and increases as characters are typed, and decreases when characters are erased.
 	cursorPositionInText := 0
 
+	calculateStatistics := func() {
+		numErrors = 0
+		numCorrect = 0
+
+		mistakes = extractMistypedWords(
+			referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText], t.ReaderMode)
+
+		for i := 0; i < cursorPositionInText; i++ {
+			if referenceText[i] != '\n' {
+				if referenceText[i] != userTypedText[i] {
+					numErrors++
+				} else {
+					numCorrect++
+				}
+			}
+		}
+
+		returnCode = UserCompleted
+		duration = time.Now().Sub(startTime)
+	}
+
+	redraw1 := func() {
+		cursorX := xStartLeftSideOfScreen
+		cursorY := yStartTopSideOfSideOfScreen
+		inWord := -1
+
+		for i := range referenceText {
+			style := t.defaultStyle
+
+			characterInSegment := referenceText[i]
+			if characterInSegment == '\n' {
+				cursorY += yLineMultiplier
+				cursorX = xStartLeftSideOfScreen
+				if inWord != -1 {
+					inWord++
+				}
+				continue
+			}
+
+			if i == cursorPositionInText {
+				t.Screen.ShowCursor(cursorX, cursorY)
+				inWord = 0
+			}
+
+			if i >= cursorPositionInText {
+				if characterInSegment == ' ' {
+					inWord++
+				} else if inWord == 0 {
+					style = t.currentWordStyle
+				} else if inWord == 1 {
+					style = t.nextWordStyle
+				} else {
+					style = t.defaultStyle
+				}
+			} else if characterInSegment != userTypedText[i] {
+				if characterInSegment == ' ' {
+					style = t.incorrectSpaceStyle
+				} else {
+					style = t.incorrectStyle
+				}
+			} else {
+				style = t.correctStyle
+			}
+
+			t.Screen.SetContent(cursorX, cursorY, characterInSegment, nil, style)
+			// only type the character in the row below if it is different from the correct character
+			if referenceText[i] != userTypedText[i] {
+				t.Screen.SetContent(cursorX, cursorY+1, userTypedText[i], nil, style)
+			}
+
+			cursorX++
+		}
+
+		attributionWidth, attributionHeight := calcStringDimensions(attribution)
+		drawString(
+			t.Screen,
+			xStartLeftSideOfScreen+numCols-attributionWidth,
+			yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+1,
+			attribution,
+			-1,
+			t.defaultStyle,
+		)
+
+		if timeLimit != -1 && !startTime.IsZero() {
+			remaining := timeLimit - time.Now().Sub(startTime)
+			drawString(t.Screen,
+				xStartLeftSideOfScreen+numCols/2,
+				yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				"      ",
+				-1,
+				t.defaultStyle,
+			)
+			drawString(t.Screen,
+				xStartLeftSideOfScreen+numCols/2,
+				yStartTopSideOfSideOfScreen+numRows*yLineMultiplier+attributionHeight+1,
+				strconv.Itoa(int(remaining/1e9)+1),
+				-1,
+				t.defaultStyle,
+			)
+		}
+
+		if t.ShowWpm && !startTime.IsZero() {
+			calculateStatistics()
+			if duration > 1e7 { // Avoid flashing large numbers on test start.
+				wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
+				drawString(t.Screen,
+					xStartLeftSideOfScreen+numCols/2-4,
+					yStartTopSideOfSideOfScreen-2,
+					fmt.Sprintf("WPM: %-10d\n", wpm),
+					-1,
+					t.defaultStyle,
+				)
+			}
+		}
+
+		t.Screen.Show()
+	}
+
 	tickerCloser := make(chan bool)
 
 	// Inject nil events into the main event loop at regular intervals to force an update
@@ -246,9 +364,10 @@ func (t *Typer) start(
 
 	t.Screen.Clear()
 	for {
-		t.redraw(referenceText, userTypedText, cursorPositionInText,
-			xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
-			numCols, numRows, attribution, startTime, timeLimit)
+		redraw1()
+		//t.redraw(referenceText, userTypedText, cursorPositionInText,
+		//	xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
+		//	numCols, numRows, attribution, startTime, timeLimit)
 
 		ev := t.Screen.PollEvent()
 
@@ -352,9 +471,10 @@ func (t *Typer) start(
 				return
 			}
 
-			t.redraw(referenceText, userTypedText, cursorPositionInText,
-				xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
-				numCols, numRows, attribution, startTime, timeLimit)
+			redraw1()
+			//t.redraw(referenceText, userTypedText, cursorPositionInText,
+			//	xStartLeftSideOfScreen, yStartTopSideOfSideOfScreen,
+			//	numCols, numRows, attribution, startTime, timeLimit)
 		}
 	}
 }
