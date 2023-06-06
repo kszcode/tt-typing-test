@@ -340,13 +340,15 @@ func (t *Typer) start(
 				}
 
 				if cursorPositionInText == len(referenceText) {
-					_, _, _, _ = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+					numErrors, numCorrect, mistakes, duration = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+					returnCode = UserCompleted
 					return
 				}
 			}
 		default: // tick
 			if timeLimit != -1 && !startTime.IsZero() && timeLimit <= time.Now().Sub(startTime) {
-				_, _, _, _ = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+				numErrors, numCorrect, mistakes, duration = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+				returnCode = UserCompleted
 				return
 			}
 
@@ -471,6 +473,7 @@ func (t *Typer) redraw(
 
 	if t.ShowWpm && !startTime.IsZero() {
 		numErrors, numCorrect, _, duration := t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+
 		if duration > 1e7 { // Avoid flashing large numbers on test start.
 			wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
 			drawString(t.Screen,
@@ -495,18 +498,37 @@ func (t *Typer) calculateStatistics(
 	startTime time.Time,
 	referenceText []rune, userTypedText []rune, cursorPositionInText int,
 ) (
-	numErrors, numCorrect, numTyped, duration int64,
+	numErrors, numCorrect int, mistakes []mistake, duration time.Duration,
 ) {
+	//for i := 0; i < cursorPositionInText; i++ {
+	//	if referenceText[i] != userTypedText[i] {
+	//		numErrors++
+	//	}
+	//	if referenceText[i] != ' ' && referenceText[i] != '\n' {
+	//		numTyped++
+	//	}
+	//	if userTypedText[i] != ' ' && userTypedText[i] != '\n' {
+	//		numCorrect++
+	//	}
+	//}
+	//return numErrors, numCorrect, numTyped, int64(time.Now().Sub(startTime))
+
+	numErrors = 0
+	numCorrect = 0
+
+	mistakes = extractMistypedWords(
+		referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText], t.ReaderMode)
+
 	for i := 0; i < cursorPositionInText; i++ {
-		if referenceText[i] != userTypedText[i] {
-			numErrors++
-		}
-		if referenceText[i] != ' ' && referenceText[i] != '\n' {
-			numTyped++
-		}
-		if userTypedText[i] != ' ' && userTypedText[i] != '\n' {
-			numCorrect++
+		if referenceText[i] != '\n' {
+			if referenceText[i] != userTypedText[i] {
+				numErrors++
+			} else {
+				numCorrect++
+			}
 		}
 	}
-	return numErrors, numCorrect, numTyped, int64(time.Now().Sub(startTime))
+
+	duration = time.Now().Sub(startTime)
+	return
 }
