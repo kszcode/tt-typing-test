@@ -221,27 +221,6 @@ func (t *Typer) start(
 	// This variable starts at 0 and increases as characters are typed, and decreases when characters are erased.
 	cursorPositionInText := 0
 
-	calculateStatistics := func() {
-		numErrors = 0
-		numCorrect = 0
-
-		mistakes = extractMistypedWords(
-			referenceText[:cursorPositionInText], userTypedText[:cursorPositionInText], t.ReaderMode)
-
-		for i := 0; i < cursorPositionInText; i++ {
-			if referenceText[i] != '\n' {
-				if referenceText[i] != userTypedText[i] {
-					numErrors++
-				} else {
-					numCorrect++
-				}
-			}
-		}
-
-		returnCode = UserCompleted
-		duration = time.Now().Sub(startTime)
-	}
-
 	redraw1 := func() {
 		cursorX := xStartLeftSideOfScreen
 		cursorY := yStartTopSideOfSideOfScreen
@@ -323,7 +302,9 @@ func (t *Typer) start(
 		}
 
 		if t.ShowWpm && !startTime.IsZero() {
-			calculateStatistics()
+			//calculateStatistics()
+			numErrors, numCorrect, mistakes, duration = t.calculateStatistics(startTime, referenceText, userTypedText, cursorPositionInText)
+			returnCode = UserCompleted
 			if duration > 1e7 { // Avoid flashing large numbers on test start.
 				wpm := int((float64(numCorrect) / 5) / (float64(duration) / 60e9))
 				drawString(t.Screen,
