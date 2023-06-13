@@ -33,6 +33,9 @@ func generateTestFromFile(filePath string, startParagraph int) func() []segment 
 
 	// Get the current paragraph index from the state
 	currentParagraphIdx := fileStateDB[filePath] - 1
+	if currentParagraphIdx < -1 {
+		currentParagraphIdx = -1
+	}
 
 	// Read the file content
 	if fileContentBytes, err := os.ReadFile(filePath); err != nil {
