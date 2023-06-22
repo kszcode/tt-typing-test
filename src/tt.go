@@ -124,7 +124,7 @@ func showReport(
 	report = fmt.Sprintf("%s\nTests completed : %d", report, len(globalResults))
 	report = fmt.Sprintf("%s\nCharacters      : %d", report, correctChars+incorrectChars)
 	report = fmt.Sprintf("%s\nDuration        : %s", report, duration)
-	report = fmt.Sprintf("%s\n\nPress ESC to continue.", report)
+	report = fmt.Sprintf("%s\n\nPress SPACE to continue.", report)
 
 	scr.Clear()
 	drawStringAtCenter(scr, report, tcell.StyleDefault)
@@ -132,10 +132,15 @@ func showReport(
 	scr.Show()
 
 	for {
-		if key, ok := scr.PollEvent().(*tcell.EventKey); ok && key.Key() == tcell.KeyEscape {
-			return
-		} else if ok && key.Key() == tcell.KeyCtrlC {
-			exit(1)
+		event := scr.PollEvent()
+		switch ev := event.(type) {
+		case *tcell.EventKey:
+			key := ev.Key()
+			if key == tcell.KeyRune && ev.Rune() == ' ' {
+				return
+			} else if key == tcell.KeyCtrlC {
+				exit(1)
+			}
 		}
 	}
 }
