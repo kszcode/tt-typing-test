@@ -116,14 +116,29 @@ func showReport(
 		}
 	}
 
-	report := fmt.Sprintf("WPM: %9d\nCPM: %9d\nAccuracy:  %.2f%%%s%s%s",
-		wpm, cpm, accuracy,
+	// Convert the time.Duration to minutes and seconds
+	minutes := int(duration.Minutes())
+	seconds := int(duration.Seconds()) % 60
+
+	// Format the duration for right alignment
+	var durationStr string
+	if minutes > 0 {
+		durationStr = fmt.Sprintf("%7d:%02d", minutes, seconds)
+	} else {
+		durationStr = fmt.Sprintf("%9d", seconds)
+	}
+
+	// Integrate the formatted duration into the report string
+	report := fmt.Sprintf("WPM: %9d\n"+
+		"CPM: %9d\n"+
+		"Duration: %s\n"+
+		"Accuracy: %9.2f%%%s%s%s",
+		wpm, cpm, durationStr, accuracy,
 		mistakeStr, attribution, globalInfoAboutTheCurrentTest)
 
 	report = fmt.Sprintf("%s\n", report)
 	report = fmt.Sprintf("%s\nTests completed : %d", report, len(globalResults))
 	report = fmt.Sprintf("%s\nCharacters      : %d", report, correctChars+incorrectChars)
-	report = fmt.Sprintf("%s\nDuration        : %s", report, duration)
 	report = fmt.Sprintf("%s\n\nPress SPACE to continue.", report)
 
 	scr.Clear()

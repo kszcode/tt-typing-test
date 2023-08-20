@@ -310,29 +310,31 @@ func (t *TyperScreen) start(
 						}
 					}
 				}
-			case tcell.KeyRune:
-				if cursorPositionInText <= len(referenceText) {
-					if t.SkipWord && ev.Rune() == ' ' {
-						if !t.ReaderMode && cursorPositionInText > 0 {
-							prevCharacterIsSpace := referenceText[cursorPositionInText-1] == ' '
-							if prevCharacterIsSpace && referenceText[cursorPositionInText] != ' ' { // Do nothing on word boundaries.
-								break
-							}
+			case tcell.KeyEnter:
+				if cursorPositionInText < len(referenceText) {
+					if !t.ReaderMode && cursorPositionInText > 0 {
+						prevCharacterIsSpace := referenceText[cursorPositionInText-1] == ' '
+						if prevCharacterIsSpace && referenceText[cursorPositionInText] != ' ' { // Do nothing on word boundaries.
+							break
 						}
+					}
 
-						for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {
-							userTypedText[cursorPositionInText] = 0
-							cursorPositionInText++
-						}
-
-						if cursorPositionInText < len(referenceText) {
-							userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
-							cursorPositionInText++
-						}
-					} else {
-						userTypedText[cursorPositionInText] = ev.Rune()
+					for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] != ' ' && referenceText[cursorPositionInText] != '\n' {
+						userTypedText[cursorPositionInText] = 0
 						cursorPositionInText++
 					}
+
+					if cursorPositionInText < len(referenceText) {
+						userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
+						cursorPositionInText++
+					}
+				}
+
+			case tcell.KeyRune:
+				if cursorPositionInText < len(userTypedText) {
+					// feed the character into the userTypedText buffer
+					userTypedText[cursorPositionInText] = ev.Rune()
+					cursorPositionInText++
 
 					for cursorPositionInText < len(referenceText) && referenceText[cursorPositionInText] == '\n' {
 						userTypedText[cursorPositionInText] = referenceText[cursorPositionInText]
