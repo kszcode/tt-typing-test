@@ -123,9 +123,9 @@ func showReport(
 	// Format the duration for right alignment
 	var durationStr string
 	if minutes > 0 {
-		durationStr = fmt.Sprintf("%7d:%02d", minutes, seconds)
+		durationStr = fmt.Sprintf("%2dm:%02ds", minutes, seconds)
 	} else {
-		durationStr = fmt.Sprintf("%9d", seconds)
+		durationStr = fmt.Sprintf("%6ds", seconds)
 	}
 
 	// Integrate the formatted duration into the report string
